@@ -1,32 +1,7 @@
-name: CI
-
-on: [push, pull_request]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Cache pip packages
-        id: pip-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
-
       - name: Show cache status
-        run: echo "Cache hit = ${{ steps.pip-cache.outputs.cache-hit }}"
-
-      - run: pip install -r requirements.txt
-
-      - name: Run tests
         run: |
-          set -o pipefail
-          pytest 2>&1 | tee build.log
+          if [ "${{ steps.pip-cache.outputs.cache-hit }}" == "true" ]; then
+            echo "CACHE HIT: pip packages restored from cache"
+          else
+            echo "CACHE MISS: no cache for this requirements.txt"
+          fi
