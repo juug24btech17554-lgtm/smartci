@@ -3,8 +3,11 @@ name: CI
 on: [push, pull_request]
 
 jobs:
-  build:
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.route.outputs.matrix }}
+      has_tests: ${{ steps.route.outputs.has_tests }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -14,25 +17,46 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Route tests
+        id: route
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          MATRIX=$(python scripts/route_tests.py "$BASE")
+          echo "Routing result: $MATRIX"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          HAS=$(python -c "import json,sys; print('true' if json.loads(sys.argv[1])['include'] else 'false')" "$MATRIX")
+          echo "has_tests=$HAS" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: plan
+    if: needs.plan.outputs.has_tests == 'true'
+    name: test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Cache pip packages
-        id: pip-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: pip-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
 
-      - name: Show cache status
-        run: |
-          if [ "${{ steps.pip-cache.outputs.cache-hit }}" == "true" ]; then
-            echo "CACHE HIT: pip packages restored from cache"
-          else
-            echo "CACHE MISS: no cache for this requirements.txt"
-          fi
-
       - run: pip install -r requirements.txt
 
-      - name: Run tests
+      - name: Run routed subset
         run: |
-          set -o pipefail
-          pytest 2>&1 | tee build.log
+          echo "Subset: ${{ matrix.name }}"
+          echo "Reason: ${{ matrix.reason }}"
+          pytest ${{ matrix.files }} -v
           
